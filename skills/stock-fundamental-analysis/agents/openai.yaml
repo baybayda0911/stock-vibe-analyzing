@@ -1,0 +1,6 @@
+interface:
+  display_name: "股票基本面分析"
+  short_description: "基于证据研究公司商业模式、财务质量、护城河、估值与长期风险"
+  default_prompt: "请使用 $stock-fundamental-analysis 分析指定公司或股票的基本面。"
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,22 @@
+# Local credentials and configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+/.local/
+
+# Research outputs and private portfolio material
+/reports/
+/data/
+
+# Temporary files and editor state
+*.log
+*.tmp
+*.bak
+*~
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+__pycache__/

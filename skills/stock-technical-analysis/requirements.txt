@@ -1,0 +1,4 @@
+numpy==2.2.6
+TA-Lib==0.6.8
+matplotlib==3.9.2
+plotly==5.24.1

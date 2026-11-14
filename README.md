@@ -1,136 +1,219 @@
-# stock-vibe-analyzing
+# stock-vibe-analyzing
+
+面向股票研究的中文Agent Skills集合，包含基本面、技术面、研究室和档案室，各自独立安装并按需协作；配套本地工作台展示已有经营与技术研究、检查研报线索并保存跟踪名单。
+
+**当前版本：v0.15.0（本地工作台S5，S1—S5验收修订；未发布GitHub Release）。** 最近GitHub Release仍为 [v0.1.0](https://github.com/baybayda0911/stock-vibe-analyzing/releases/tag/v0.1.0)。
+
+仓库地址：[baybayda0911/stock-vibe-analyzing](https://github.com/baybayda0911/stock-vibe-analyzing)。源码与独立 skill 分发包均采用明确的发布白名单，研究报告和金融数据不随包分发。
+
+图形平台S5沿D5布局，在已有经营／技术看板、连续判断、档案室和Codex／DeepSeek双来源任务上，新增2—5股只读横向比较。比较按共同观察日、财报期及期间口径并列经营、现金、定价与技术证据；原价基100曲线只作同窗诊断，不给综合投资排名。用户明确开始后，平台冻结证券、日期、来源与范围，展示实际进展与补充问题，核验后追加归档；切股、重载或打开页面不自动调用模型。任务可取消或核原状态后恢复，旧报告与原判据保留。**当前研究依据是可信冻结档案和计算组件，不主动Web／Wind取数或刷新行情；材料不足须保持问题卡，不能冒称完整首研。** 来源配置、实际权限、真实研究和各分支的验收分别见[平台说明](docs/platform.md)与[验证记录](docs/validation.md)，入口或源码不等于已验证。
+
+本轮对照D5核验S1—S5，并补充同浏览器、同运行地址的视图偏好与档案关键词筛选。偏好只恢复已可信证券、页面／科目、周期、指标、均线、窗口与比较条件，不保存报告、密钥、草稿或回答，不自动开始研究或重放比较；随机端口变化、更换浏览器或无法保存时需重新选择。档案关键词按空格分词并同时匹配标题、概述、来源和成果ID等元数据，可叠加模块和日期筛选，不是PDF全文检索。完整流程、修复及保留情况以[验证记录](docs/validation.md)为准。
 
-面向股票研究的中文 Agent Skills 集合。不同分析任务使用各自独立、可安装的 skill，后续逐步加入技术面等研究工作流。
+## Skill 清单
+
+| Skill | 中文名 | 版本 | 状态与用途 |
+|---|---|---|---|
+| [stock-fundamental-analysis](skills/stock-fundamental-analysis/SKILL.md) | 股票基本面分析 | 0.3.2 | 开发版；长期研究、经营周期与定价，以及日期合格的技术成果衔接 |
+| [stock-research-lab](skills/stock-research-lab/SKILL.md) | 研究室 | 0.3.0 | 开发版；连续回顾、关注项、计划／成交、严格复盘及原始归档协议 |
+| [stock-technical-analysis](skills/stock-technical-analysis/SKILL.md) | 股票技术面分析 | 0.4.2 | 开发版；正式采用已确认简报结构，六专题、五周期、自建申万行业比较与前次回顾 |
+| [stock-research-archive](skills/stock-research-archive/SKILL.md) | 股票研究档案室 | 0.3.0 | 开发版；个股首页／时间线、版本对比、资料包及含可选跟踪名单的快照恢复 |
+
+四个skill按任务分工：基本面与技术面形成专业研究，研究室回顾原判断、原因及用户反馈，档案室负责定位、比较、导出和恢复已有档案。配置研究室后按任务读档与归档，持久层保持一个私有根、一套源记录及一个可重建catalog。档案室独立包仍需宿主显式配置既有研究室工具，通过`--lab-tool`传入其绝对位置，不假设相邻Skill目录。技术面已实现常规、蜡烛、一目、谐波、SMC、海龟六个有限专题；缠论、基础波浪和高级波浪继续暂停。用法见[技术面说明](docs/technical-analysis.md)、包内[技术面分析说明书](skills/stock-technical-analysis/references/技术面分析说明书.md)及[档案室说明](docs/research-archive.md)。每个skill版本以自身`SKILL.md`为准；仓库版本以[VERSION](VERSION)为准。
+
+## 首个 skill 的能力
+
+`stock-fundamental-analysis`（股票基本面分析）基于原提示词和完整公司研究框架，提供：
+
+- 自动选择的中文基本面研究入口，覆盖“请分析XX公司基本面”“请分析XX股票基本面”等请求。
+- 十章 Markdown 报告流程，包含五年及近期财务、三种估值情景、反方审查、证伪条件与季度跟踪卡。
+- 新增“行业周期、经营兑现与市场定价”章：按经营证据分期，以年度十年、季度五个完整财年及最新披露期的A版分面图观察长周期关系，历史不足或行业指标不适用时据实调整。
+- 跨章共用指标定义和底层数据，区分经营所属期与公开日期；财务表、现金桥、估值情景及完整跟踪表分别维护一次。
+- 一手资料优先、引用追溯、财务口径检查与数据不足时的降级规则。
+
+以上是已编写的工作流指令，实际研究由宿主 agent 执行；本项目没有独立行情服务、交易程序或自动监控器。
+
+## 技术面、研究室与档案室
+
+技术面常规指标采用TA-Lib主后端，蜡烛覆盖所装版本的61个形态函数；一目区分计算可知与绘图位移，谐波保留四类项目规则和PRZ，SMC只识别明确定义的价格结构，海龟只给多头条件。它们不组成投票、胜率或自动交易模型。已声明的机械缺口／会话边界会阻止相应FVG及订单块识别；未声明不能视为已排除除权或停牌影响。
+
+完整单股研究正式采用已确认的简明HTML与Markdown结构：一句结论、三条依据、两张主图、两条下一观察、五周期状态、前次与旧项，以及数据边界。缺数据实说明，六专题全图、方法、各周期解读及证据表保留在`details`附录，完整审计数值放JSON。按需个人卡仍保留，比较／筛选和指定专项按相应范围交付。保留市场／行业背景、证据支持冲突、按需执行条件卡和严格复盘四输出。前次成果只有身份、日期与价格口径兼容时才作数值变化比较，复制旧文件不刷新资格。
+
+当前聚焦日、周、月、半年和年线，分钟研究暂停：5／15／60分钟请求明确标为`paused`，不读取、取数、计算或聚合；旧分钟档案仍可查阅。半年／年线须有覆盖完整期间的交易日历，只将最近连续完整段用于计算，排除未完成期与断档；历史不足时明确缺失指标，不把少量长周期K线包装成完整六专题。
+
+可从本地逐日申万一级／二级／三级标签构建等权行业比较组合，观察个股相对表现、行业广度与覆盖率。该组合使用前一共同交易观察日归属，明确缺数、链段及目标股是否被包含；它是自建比较口径，非官方申万指数，不能用当前分类回填后声称历史当时已知。
+
+纯研究不索取持仓；个性化动作缺资料时保留非个性化条件。指定2—5只可比研究与明确证券池的条件筛选各自冻结范围，不默认全市场运行。原价或复权未核验的长历史仍为诊断资料，聚合不提升其资格。
+
+研究室可按明示附件清单复制JSON／PNG／HTML并核对摘要；未列附件不自动入档。计划、触发、采纳、实际成交、反馈时间和收益资格分别记录，缺反馈不是未做，未交易不是0收益。详见[研究室说明](docs/research-lab.md)。
+
+档案室提供`view`个股首页与时间线、`compare`版本对比、`export`已归档资料包，以及`backup`完整快照、`verify`校验和`restore`到新目录。查阅／资料包、手动快照与恢复演练分别放在私有根的`_workspace/views`、`_workspace/backups`、`_workspace/restore-tests`，不另建正式记录或第二套catalog。工作区排除在正式记录扫描和备份源之外；查档不取行情或重跑研究，导出不刷新原日期资格。快照不加密，同盘副本不构成硬盘故障容灾。操作与边界见[档案室说明](docs/research-archive.md)。
+
+## 本地工作台S5
+
+保留A版「清爽工作台」四个主入口与个股科目。首页给跟踪对象、真实价格／MA5、经营和技术摘要及下一步；个股页查原研究、连续关注项、证据和窗口。查看旧档不会刷新资料或自动恢复过期判断。
+
+需要研究时，从“准备更新研究”或某项旧判断进入，选择基本面／技术面／联合范围、完整／延续／研报驱动方式、Codex或DeepSeek、截止日期与本轮问题，再明确“开始研究”。“任务”页显示跨证券真实进展、待答问题和已归档成果，隐藏聊天与工具内部输出。回答绑定原问题；重复或丢响应重试复用原请求，取消不删已归档部分；恢复先核原会话与已有产物，不默认重发付费步骤。费用无法核实时保持未知，已消耗额度不能因取消撤销。
+
+平台托管读取已核资料、继承原数值／图表、核验和归档；模型仅作受限解释，不能任意执行CLI或改旧档。每任务只读范围、拒写及工具禁用是执行准入条件，实际生效与各来源／恢复分支的实测见验证记录，不靠提示词充当权限隔离。两来源使用独立会话并核同一专属后台项目，原HOME及全局模型配置保持；不提供另一个OpenAI API Key路径。
+
+完整研究要求可信定量资料，延续研究带入原项和原判据；缺数保持问题卡。财务、行情、专业计算各自保持旧截止，新报告仅另记本次真实生成时间。研报必须先核原页并正式归档，按原发布日期显示；没有可核一手实质事件的研报驱动结果仅作补充适配，不替代正式主F。“已供本次研究参考”也不表示所有观点已采纳。
+
+在仓库根运行，输入已有、Git仓库外的私有根与专属项目：
+
+```powershell
+$archiveRoot = Read-Host '私有档案根的绝对目录'
+$projectDir = Read-Host '专属项目的绝对目录'
+python -X utf8 -B app/launch.py --root $archiveRoot --project-dir $projectDir
+```
+
+Windows可用start-platform.cmd，原本机开／停入口继续指向当前源码；服务仅监听127.0.0.1并核Host、会话、Origin及CSRF。模型执行还需本机已有Codex、已确认的后台项目身份和凭据入口；配置不在页面填写或随包分发，不自动安装或改变登录。归档提交期间不可取消，正常停机等待当前提交完成，不强制结束进程。
+
+正式源仍在唯一私有根，跟踪名单只写platform/watchlist.json。任务和尝试留_workspace/platform/tasks，正式成果校验后由原工具追加；工作区、任务恢复状态、凭据及日志不在正式档案快照源。快照/2可保留名单与注册原PDF并兼容旧/1，但不能声称恢复完整未完成任务或原生模型会话。同盘快照不是异盘容灾。
+
+“横向比较”接受2—5个已确认证券，选择共同观察日、年初至今累计／单季／全年及20／60／120／252个共同价格间隔。财务金额统一为人民币元，以同一财报期计算同比和利润率；现金转化率使用同期合并净利润，简化自由现金流为经营现金流减购建长期资产现金。单元格保留数据来源、公开日期和计算依据，缺数或不可比列明原因。
 
-**当前仓库版本：v0.1.0。** [版本发布页](https://github.com/baybayda0911/stock-vibe-analyzing/releases/tag/v0.1.0)。
-
-仓库地址：[baybayda0911/stock-vibe-analyzing](https://github.com/baybayda0911/stock-vibe-analyzing)。源码与独立 skill 分发包均采用明确的发布白名单，研究报告和金融数据不随包分发。
-
-## Skill 清单
-
-| Skill | 中文名 | 版本 | 状态与用途 |
-|---|---|---|---|
-| [stock-fundamental-analysis](skills/stock-fundamental-analysis/SKILL.md) | 股票基本面分析 | 0.1.0 | 已编写；长期公司研究、财务质量、护城河、增长、风险及估值 |
-| 技术面分析 | 待后续定义 | — | 规划中，尚未创建 |
-
-目前只有首个基本面 skill。每个 skill 的版本记录在其 `SKILL.md` 的 `metadata.version`；仓库整体版本以 [VERSION](VERSION) 为准，两者分别维护。
-
-## 首个 skill 的能力
-
-`stock-fundamental-analysis`（股票基本面分析）基于原提示词和完整公司研究框架，提供：
-
-- 自动选择的中文基本面研究入口，覆盖“请分析XX公司基本面”“请分析XX股票基本面”等请求。
-- 九章 Markdown 报告流程，包含五年及近期财务、三种估值情景、反方审查、证伪条件与季度跟踪卡。
-- 一手资料优先、引用追溯、财务口径检查与数据不足时的降级规则。
-
-以上是已编写的工作流指令，实际研究由宿主 agent 执行。v0.1.0 没有独立行情服务、交易程序或自动监控器。
-
-## 环境与依赖
-
-需要能读取本地文件并支持 Agent Skills 的宿主。已在 Codex CLI 与 Trae 3.6.4 完成全局安装及自然语言调用测试；`agents/openai.yaml` 提供 Codex 元数据，Trae 使用通用 SKILL 入口。其他宿主尚未实测。
-
-首个 skill 只有 Markdown 与 YAML，不需要 Python、Node、包安装、API Key 或环境变量。研究最新公司资料时，需要宿主已有的联网检索能力；可选的只读金融数据工具由用户自行配置。无法联网时可以分析用户提供的文件，但必须标明资料截止日与缺口。以后新增 skill 的依赖应按各自实际入口说明。
-
-## 在 Codex 中安装基本面 skill
-
-在包含本 README 的仓库根目录执行以下 PowerShell 命令，只安装选定的 skill：
-
-```powershell
-$skillHome = Join-Path $HOME '.agents/skills'
-$skillTarget = Join-Path $skillHome 'stock-fundamental-analysis'
-if (Test-Path -LiteralPath $skillTarget) { throw '目标已存在，请先核对安装版本并备份，不要直接覆盖。' }
-New-Item -ItemType Directory -Path $skillHome -Force -ErrorAction Stop | Out-Null
-Copy-Item -LiteralPath 'skills/stock-fundamental-analysis' -Destination $skillTarget -Recurse -ErrorAction Stop
-```
-
-目标目录应包含 `SKILL.md`、`LICENSE`、`agents/openai.yaml`、`references/prompt.md` 和 `references/公司研究框架.md` 五个文件。不需要复制整个集合仓库或其他 skill。项目级安装可改用对应项目的 `.agents/skills`，避免同名安装多份。独立分发 skill 时保留其中的许可证文本。
-
-安装路径、自动选择与显式调用的依据见 [OpenAI 官方 skill 文档](https://learn.chatgpt.com/docs/build-skills)（核对日期：2026-10-27）。Codex 按 skill 描述选择是否调用，`allow_implicit_invocation: true` 允许自动选择；自然语言触发取决于宿主判断，并非固定关键词拦截器。新安装通常会自动发现；若未出现，重启 Codex 后检查 skill 列表。
-
-2026-10-27 已按用户授权完成 Codex 与 Trae 用户级全局安装，并使用原句“请分析中际旭创基本面”验证自动调用；两端均实际读取全局 skill 并生成分析。安装文件与仓库一致，具体证据及研究质量边界见 [验证记录](docs/validation.md)。
-
-## 在 Trae 中安装基本面 skill
-
-在仓库根目录执行以下 PowerShell 命令，复制到 Trae 的全局 skill 目录：
-
-```powershell
-$skillHome = Join-Path $HOME '.trae/skills'
-$skillTarget = Join-Path $skillHome 'stock-fundamental-analysis'
-if (Test-Path -LiteralPath $skillTarget) { throw '目标已存在，请先核对安装版本并备份，不要直接覆盖。' }
-New-Item -ItemType Directory -Path $skillHome -Force -ErrorAction Stop | Out-Null
-Copy-Item -LiteralPath 'skills/stock-fundamental-analysis' -Destination $skillTarget -Recurse -ErrorAction Stop
-```
-
-实际验收使用 Trae 当前已配置的 GPT-6.1-Sol Max，自然语言请求未点选 skill 或使用斜杠命令。该结论覆盖本次版本和用例，不表示其他模型及所有请求均已验证。
-
-## 使用基本面 skill
-
-安装并确认宿主已发现后，在对话中输入：
-
-```text
-请分析贵州茅台（600519.SH）公司基本面。
-请分析苹果（NASDAQ:AAPL）股票基本面。
-```
-
-也可以明确指定：
-
-```text
-请使用 $stock-fundamental-analysis 分析腾讯控股（0700.HK）基本面。
-```
-
-预期先核实公司及目标证券，读取研究依据，检索原始披露，再生成中文 Markdown 报告：核心结论、商业模式、行业、竞争、客户、财务与管理层、增长及风险、估值、季度跟踪。没有用户提供的组合信息时，不机械给出仓位比例。
-
-同名公司或多地上市造成估值歧义时，agent 会先确认证券；缺财务资料、现价或联网能力时，应明确给出初步研究和无法判断项。报告默认在对话内交付；要保存文件时指定输出位置。跟踪卡不自动创建提醒或持续监控。
-
-如自动选择没有发生，先检查发现目录、是否禁用、名称冲突和 skill 描述是否被宿主截断，再使用显式调用确认入口可读。纯股价查询、技术指标或新闻摘要不属于基本面 skill 的默认范围；后续技术面 skill 应另行设计触发描述。
-
-## 目录与文档
-
-```text
-stock-vibe-analyzing/
-├── README.md                         仓库导航、Skill 清单及安装使用
-├── AGENTS.md                         仓库维护入口
-├── VERSION                           仓库整体版本
-├── CHANGELOG.md                      按 Skill 归属记录仓库版本变化
-├── LICENSE                           MIT 标准许可证
-├── .gitignore                        本机配置和研究产物的忽略规则
-├── skills/
-│   └── stock-fundamental-analysis/
-│       ├── SKILL.md                  基本面入口及自身版本
-│       ├── LICENSE                   独立分发所需的 MIT 声明
-│       ├── agents/openai.yaml        展示信息、示例调用与自动选择策略
-│       └── references/
-│           ├── prompt.md             原 TXT 转换的研究提示词
-│           └── 公司研究框架.md         完整专题及原 V3.0 研究规范
-├── release-files.txt                 逐文件发布白名单
-├── scripts/build_release.py          标准库发布归档工具
-├── tests/test_release.py             排除与失败保护测试
-└── docs/
-    ├── maintenance.md                文档归属、多 Skill 扩展及版本规则
-    ├── validation.md                 验证方法、用例与实际结果
-    └── releasing.md                  发布白名单、归档及远程核验
-```
-
-两份研究依据已迁入首个 skill 的 `references/`，原始框架内容不变，不保留第二份来源。以后新增 skill 放入 `skills/<skill-name>/`，带齐自身需要的资料，详见 [维护与扩展规则](docs/maintenance.md)。技术面 skill 尚未创建，不预建空目录。
-
-用户生成的报告和下载资料可分别放在被忽略的 `reports/`、`data/`，当前不创建空目录。`.gitignore` 只影响未跟踪文件，不能清理已提交的内容。
-
-## 验证与限制
-
-2026-10-27 在 Windows／PowerShell 环境完成原资料保留核验、skill 官方结构校验、YAML／相对链接／版本检查及单独安装包的隔离复制验证，详见 [验证记录](docs/validation.md)。
-
-随后完成两端全局安装与中际旭创自然语言自动调用，并生成研究结果。关键现金流计算抽查通过；发现 Trae 所引一项毛利率与财报复算不符，交付版已附更正，详见验证记录。实际报告仍有订单条款、分产品盈利、资本回报等缺口，不能把触发成功等同于投资结论已经完整核实。2026-10-28 进一步执行离线资料、历史时点、证券歧义、纯价格请求与毛利率冲突处理的行为验收；具体宿主和证据边界见验证记录。跨版本兼容及全部预测准确性尚未验证。
-
-发布附件由 [发布脚本](scripts/build_release.py) 按 [白名单](release-files.txt) 生成，集合源码包仅含 17 个核验文件，基本面 skill 包仅含五个文件。维护测试和打包使用 Python 3.10+ 标准库，不是 skill 的运行依赖。步骤见 [发布核验](docs/releasing.md)。季度业绩与市场定价的新板块仍是仓库外评审样本，未纳入 v0.1.0。
-
-## 版本与更新
-
-仓库版本以 [VERSION](VERSION) 为准；各 skill 在自身 frontmatter 中维护版本。变更统一记录在 [CHANGELOG](CHANGELOG.md)，升级及发布顺序见 [维护文档](docs/maintenance.md)。仓库与基本面 skill 均为 `0.1.0`，标签 `v0.1.0` 标记整个仓库快照。
-
-新增其他 skill 可以提升仓库版本，同时保留未变化 skill 的版本。用户只更新实际需要的安装副本；替换前先核对并备份旧副本，保留用户自定义资料。
-
-## 许可证与资料来源
-
-首个 skill 的依据来自维护者提供的 [prompt.md](skills/stock-fundamental-analysis/references/prompt.md)（原 `prompt.txt`）与 [公司研究框架.md](skills/stock-fundamental-analysis/references/公司研究框架.md)。其中 V3.0 是原始提示词版本，与项目及 skill 版本独立。
-
-本项目采用 [MIT 许可证](LICENSE)，由维护者于 2026-10-27 确认。基本面 skill 内保留同一份许可证，便于单独安装和分发；分发时保留版权及许可声明。第三方年报、研究或数据仍适用其各自使用条件，不随 skill 重新授权。
+价格从可核同口径名义原价及共同日期形成基点100轨迹，N个间隔使用N+1个价格点；该图不是含息收益或交易资格认证。PE股本／股类、原估值情景及各自技术链未统一时只并列，不作贵便宜或技术强弱排名。比较不调用模型、不新取数、不修改原档或原判断；形成新的专业研究仍须明确开始任务。实际双股、页面及边界验收以验证记录为准，不以独立旧样板替代引擎实测。各Skill本轮保持0.3.2／0.3.0／0.4.2／0.3.0，共34资源；仓库源码和标签推送、全局安装与GitHub Release发布分别记录。
+
+## 环境与依赖
+
+需要能读取本地文件并支持 Agent Skills 的宿主。v0.1.0 已在 Codex CLI 与 Trae 3.6.4 完成全局安装及自然语言调用测试；`agents/openai.yaml` 提供 Codex 元数据，Trae 使用通用 SKILL 入口。其他宿主尚未实测。
+
+基本面独立研究只需Markdown／YAML与宿主工具；研究室和档案室工具需要Python 3.10+标准库，不需要安装包、API Key或服务。档案室还需已核验、显式配置的`research_lab.py`工具，缺失时说明未执行，不自动安装。研究最新公司资料时使用宿主已有检索或只读金融数据工具；无法联网时标明资料截止与缺口。配置研究室后基本面可自动读档、回顾并归档；无配置或工具不可用时仍可独立研究，并明确档案限制。
+
+技术面帮助、输入验证及部分计算可在标准库环境运行；完整常规指标与61类蜡烛需要NumPy／TA-Lib，绘图需要Matplotlib／Plotly，版本见包内[requirements.txt](skills/stock-technical-analysis/requirements.txt)。缺依赖显式标未运行，不静默改主算法，不自动安装。资料本地优先；必要Wind缺口先做最小探针，费用未知保持未知，不自行追加区间或换数据商。
+
+## 在 Codex 中安装基本面 skill
+
+在包含本 README 的仓库根目录执行以下 PowerShell 命令，只安装选定的 skill：
+
+```powershell
+$skillHome = Join-Path $HOME '.agents/skills'
+$skillTarget = Join-Path $skillHome 'stock-fundamental-analysis'
+if (Test-Path -LiteralPath $skillTarget) { throw '目标已存在，请先核对安装版本并备份，不要直接覆盖。' }
+New-Item -ItemType Directory -Path $skillHome -Force -ErrorAction Stop | Out-Null
+Copy-Item -LiteralPath 'skills/stock-fundamental-analysis' -Destination $skillTarget -Recurse -ErrorAction Stop
+```
+
+目标目录应包含入口、LICENSE、Codex元数据、原提示词、公司研究框架和`references/研究成果衔接.md`共六个文件。只复制选定Skill即可；独立安装基本面仍可研究，研究室是可选的档案配套。项目级安装可改用对应项目的`.agents/skills`，避免同名多份；独立分发保留许可证。
+
+安装路径、自动选择与显式调用的依据见 [OpenAI 官方 skill 文档](https://learn.chatgpt.com/docs/build-skills)（核对日期：2026-10-27）。Codex 按 skill 描述选择是否调用，`allow_implicit_invocation: true` 允许自动选择；自然语言触发取决于宿主判断，并非固定关键词拦截器。新安装通常会自动发现；若未出现，重启 Codex 后检查 skill 列表。
+
+2026-10-27 已按用户授权完成 Codex 与 Trae 用户级全局安装，并使用原句“请分析中际旭创基本面”验证自动调用；两端均实际读取当时的全局 v0.1.0 并生成分析。2026-10-29 已备份旧版并将两端安装副本更新为 v0.2.0，五个资源文件均与仓库一致。文件同步与宿主自然语言触发分别验证，本轮实际结果及边界见 [验证记录](docs/validation.md)。
+
+## 在 Trae 中安装基本面 skill
+
+在仓库根目录执行以下 PowerShell 命令，复制到 Trae 的全局 skill 目录：
+
+```powershell
+$skillHome = Join-Path $HOME '.trae/skills'
+$skillTarget = Join-Path $skillHome 'stock-fundamental-analysis'
+if (Test-Path -LiteralPath $skillTarget) { throw '目标已存在，请先核对安装版本并备份，不要直接覆盖。' }
+New-Item -ItemType Directory -Path $skillHome -Force -ErrorAction Stop | Out-Null
+Copy-Item -LiteralPath 'skills/stock-fundamental-analysis' -Destination $skillTarget -Recurse -ErrorAction Stop
+```
+
+实际验收使用 Trae 当前已配置的 GPT-6.1-Sol Max，自然语言请求未点选 skill 或使用斜杠命令。该历史结论覆盖 v0.1.0 和当时用例，不表示当前开发版、其他模型及所有请求均已验证。
+
+## 2026-11-13全局安装与自然使用（v0.8.1）
+
+2026-11-13 已按授权将四个Skill同步至 Codex 与 Trae 用户级全局目录：基本面0.3.1、技术面0.4.1、研究室0.2.2、档案室0.1.0。两端合计66个资源与当时源码四包33个资源逐文件一致；更新前的旧版完整备份及研究室兼容修复前的副本均保留并核对通过。当时仓库开发版为0.8.1，源码白名单为60文件，尚未公开发布。后续源码变更不自动更新全局安装；这段是11月13日当时的安装记录，不能套用为当前安装状态。2026-11-14的S3另行核验、备份并同步两端各34资源，版本为基本面0.3.2、技术面0.4.2、研究室0.3.0、档案室0.3.0，实际边界见对应验证记录；S4本轮不由源码修改推定发生新全局安装。
+
+Codex CLI 0.167.0 已完成档案查阅、基本面增量研究、技术面增量研究和持续回顾四类自然语言验收，实际读取全局入口；用例工作目录没有项目级Skill副本，请求中没有显式Skill名称提示。本次临时关闭hooks，默认hooks运行路径尚未验收；背景模型／插件目录刷新警告与研究取数分开记录。Trae本轮按用户范围只核对安装文件，没有进行对话验收。具体过程、首次启动重试及资格限制见[验证记录](docs/validation.md)，这些结果不代替投资效果验证。
+
+给出明确的公司或证券身份后，可以按需要自然表达：
+
+| 用途 | 简短示例 |
+|---|---|
+| 档案室：查找与比较 | 看看这只股票历次研究和仍未解决的关注项。 |
+| 基本面：专业续研 | 继续这家公司的基本面研究，重点更新新增披露。 |
+| 技术面：专业续研 | 更新这只股票的技术面，保留数据口径和旧观察。 |
+| 研究室：判断回顾 | 按原判据回顾旧关注项，说明变化、证据与未知。 |
+
+本机用户级`STOCK_RESEARCH_LAB_ROOT`已指向经确认的Git仓库外私有根，新进程生效；当前已打开的应用需重启后继承。其他环境仍须明确指定私有根，或使用项目本机配置`.research-lab.local.json`的`archive_root`；不把私有路径和档案加入源码。档案室还需宿主明确提供已核验研究室工具的绝对位置，命令通过`--lab-tool`传入，配置方法见[研究室说明](docs/research-lab.md)与[档案室说明](docs/research-archive.md)。
+
+## 使用基本面 skill
+
+安装并确认宿主已发现后，在对话中输入：
+
+```text
+请分析贵州茅台（600519.SH）公司基本面。
+请分析苹果（NASDAQ:AAPL）股票基本面。
+```
+
+也可以明确指定：
+
+```text
+请使用 $stock-fundamental-analysis 分析腾讯控股（0700.HK）基本面。
+```
+
+预期先核实公司及目标证券，读取研究依据，检索原始披露，再生成中文 Markdown 报告：核心结论、商业模式、行业、竞争、客户、财务与管理层、增长及风险、估值、行业周期与经营兑现及市场定价、季度跟踪。没有用户提供的组合信息时，不机械给出仓位比例。
+
+同名公司或多地上市造成估值歧义时，agent 会先确认证券；缺财务资料、现价或联网能力时，应明确给出初步研究和无法判断项。报告默认在对话内交付；要保存文件时指定输出位置。跟踪卡不自动创建提醒或持续监控。
+
+如自动选择没有发生，先检查发现目录、是否禁用、名称冲突和 skill 描述是否被宿主截断，再使用显式调用确认入口可读。纯股价查询、技术指标或新闻摘要不属于基本面 skill 的默认范围；技术研究使用独立技术面 skill，并按证券、输出日期及资料截止核实引用资格。
+
+## 目录与文档
+
+研究室的安装、私有目录设置、命令和时间规则见[研究室使用说明](docs/research-lab.md)。安装时可将上述复制命令的Skill名换为`stock-research-lab`；归档根须另选Git仓库外目录，初始化不会自动导入研究或接账户。自然语言归档依赖实际宿主加载对应新版Skill，文件存在不等于自动路由已通过。
+
+档案室安装与工具配置见[档案室使用说明](docs/research-archive.md)。独立包包含入口、LICENSE、Codex元数据、说明书和`research_archive.py`／`archive_views.py`／`archive_backup.py`三个脚本，共七个资源；本包内相对引用自包含，外部研究室工具由宿主明确提供。源码新增此包不代表当前全局安装已经更新或自然语言触发已经通过。
+
+```text
+stock-vibe-analyzing/
+├── README.md                         仓库导航、Skill 清单及安装使用
+├── AGENTS.md                         仓库维护入口
+├── VERSION                           仓库整体版本
+├── CHANGELOG.md                      按 Skill 归属记录仓库版本变化
+├── LICENSE                           MIT 标准许可证
+├── .gitignore                        本机配置和研究产物的忽略规则
+├── start-platform.cmd                Windows通用本机启动入口
+├── app/                              S5本机服务、双来源任务、只读比较及D5看板
+├── skills/
+│   ├── stock-fundamental-analysis/
+│       ├── SKILL.md                  基本面入口及自身版本
+│       ├── LICENSE                   独立分发所需的 MIT 声明
+│       ├── agents/openai.yaml        展示信息、示例调用与自动选择策略
+│       └── references/
+│           ├── prompt.md             原 TXT 转换的研究提示词
+│           ├── 公司研究框架.md         完整专题及原 V3.0 研究规范
+│           └── 研究成果衔接.md         日期资格、旧待办与档案衔接
+│   ├── stock-research-lab/            研究室入口、工作流与标准库档案工具
+│   ├── stock-technical-analysis/      六专题、共用数据、四输出、说明书与离线图
+│   └── stock-research-archive/        档案室首页、对比、资料包与快照恢复
+├── release-files.txt                 逐文件发布白名单
+├── scripts/build_release.py          标准库发布归档工具
+├── tests/test_release.py             排除与失败保护测试
+└── docs/
+    ├── maintenance.md                文档归属、多 Skill 扩展及版本规则
+    ├── validation.md                 验证方法、用例与实际结果
+    ├── technical-analysis.md         技术面六专题、四输出与使用边界
+    ├── research-lab.md               研究室归档协议与连续回顾
+    ├── research-archive.md           档案室安装、工作区与恢复边界
+    ├── platform.md                   本地工作台启动、图表、草稿、名单及排查
+    └── releasing.md                  发布白名单、归档及远程核验
+```
+
+基本面两份研究依据统一维护于首个skill的`references/`；技术面方法及读图统一维护于技术Skill说明书，避免多份维护。以后新增skill带齐自身资料，详见[维护与扩展规则](docs/maintenance.md)。
+
+研究室持久档案、个人计划、成交和下载原件只写用户确认的仓库外私有根，不在源码的`reports/`或`data/`存正式档案；这些目录的忽略规则保留为辅助防护。`.gitignore`不能清理已提交内容，也不能代替发布白名单。
+
+## 验证与限制
+
+2026-10-27 在 Windows／PowerShell 环境完成原资料保留核验、skill 官方结构校验、YAML／相对链接／版本检查及单独安装包的隔离复制验证，详见 [验证记录](docs/validation.md)。
+
+随后完成两端全局安装与中际旭创自然语言自动调用，并生成研究结果。关键现金流计算抽查通过；发现 Trae 所引一项毛利率与财报复算不符，交付版已附更正，详见验证记录。实际报告仍有订单条款、分产品盈利、资本回报等缺口，不能把触发成功等同于投资结论已经完整核实。2026-10-28 进一步执行离线资料、历史时点、证券歧义、纯价格请求与毛利率冲突处理的行为验收；具体宿主和证据边界见验证记录。跨版本兼容及全部预测准确性尚未验证。
+
+发布附件由[发布脚本](scripts/build_release.py)按[白名单](release-files.txt)生成；当前99源文件，平台十九文件加通用入口共二十必需资源；独立基本面六、研究室六、技术面十五、档案室七，共34，各用自身版本。维护／平台／数值依赖分别验证，隔离帮助不代表真实研究通过。研究、金融数据、研报PDF／提取、图表、成交、配置、查阅页、快照／恢复及平台状态均排除；v0.1.0历史不变，本轮验收另见[验证记录](docs/validation.md)。
+
+## 版本与更新
+
+仓库版本以[VERSION](VERSION)为准；各Skill在frontmatter维护版本。变更统一记录在[CHANGELOG](CHANGELOG.md)，顺序见[维护文档](docs/maintenance.md)。仓库当前开发版0.14.0、基本面0.3.2、研究室0.3.0、技术面0.4.2、档案室0.3.0，未公开发布；v0.1.0仍为原快照。本次S5增加同口径只读比较页面与引擎，四Skill版本和原档案协议保持；实际安装、调用与发布分别登记，不由源码版号推定通过。
+
+新增其他 skill 可以提升仓库版本，同时保留未变化 skill 的版本。用户只更新实际需要的安装副本；替换前先核对并备份旧副本，保留用户自定义资料。
+
+## 许可证与资料来源
+
+首个 skill 的依据来自维护者提供的 [prompt.md](skills/stock-fundamental-analysis/references/prompt.md)（原 `prompt.txt`）与 [公司研究框架.md](skills/stock-fundamental-analysis/references/公司研究框架.md)。其中 V3.0 是原始提示词版本，与项目及 skill 版本独立。
+
+本项目采用[MIT许可证](LICENSE)，各独立Skill保留相同许可；技术面另有[第三方说明](skills/stock-technical-analysis/THIRD_PARTY_NOTICES.md)。分发保留版权及许可声明，第三方代码／年报／研究／数据适用各自条件，不随Skill重新授权。

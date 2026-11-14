@@ -1,0 +1,6 @@
+interface:
+  display_name: "股票技术面分析"
+  short_description: "A股六专题、多周期技术研究、证据冲突、按需条件卡与持续复盘"
+  default_prompt: "请使用 $stock-technical-analysis 分析指定A股技术面，核对数据资格并延续已有研究。"
+policy:
+  allow_implicit_invocation: true

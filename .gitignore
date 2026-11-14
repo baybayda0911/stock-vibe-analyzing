@@ -5,6 +5,7 @@
 *.pem
 *.key
 /.local/
+/.research-lab.local.json
 
 # Research outputs and private portfolio material
 /reports/

@@ -1,0 +1,6 @@
+interface:
+  display_name: "股票研究档案室"
+  short_description: "查阅个股研究时间线、版本与未结项，导出资料并核验私有备份恢复"
+  default_prompt: "请使用 $stock-research-archive 查阅指定股票的历史研究、版本变化和未结事项。"
+policy:
+  allow_implicit_invocation: true

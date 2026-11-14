@@ -1,0 +1,6 @@
+interface:
+  display_name: "研究室"
+  short_description: "延续股票研究档案与未结关注项，核对判断兑现并复盘计划和用户交易反馈"
+  default_prompt: "请使用 $stock-research-lab 回顾指定股票的研究档案、未结关注项或交易反馈。"
+policy:
+  allow_implicit_invocation: true

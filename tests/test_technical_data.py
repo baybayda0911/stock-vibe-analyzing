@@ -19,6 +19,121 @@ def bar(stamp, price=10):
 
 
 class TechnicalDataTests(unittest.TestCase):
+    def sessions(self, dates, start, end, *, verified=True, available='2026-01-01T10:00:00+08:00'):
+        return dict(trading_dates=dates, coverage_start=start, coverage_end=end,
+                    verified=verified, source='fictional declared trading calendar', session_verified=verified,
+                    session_source='fictional daily completion upper bound', available_at=available,
+                    session_closes={day: day+'T15:30:00+08:00' for day in dates})
+
+    def session_bars(self, dates):
+        return [bar(day+'T15:30:00+08:00', 10+i) | {'available_at': day+'T15:35:00+08:00'}
+                for i, day in enumerate(dates)]
+
+    def test_last_planned_session_completes_week_before_natural_sunday(self):
+        dates=['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13']
+        rows=self.session_bars(dates)
+        calendar=self.sessions(dates,'2026-11-09','2026-11-15')
+        before,meta=data.aggregate_daily(rows,'1w','2026-11-13T15:29:59+08:00',calendar,asof='2026-11-13T16:00:00+08:00')
+        self.assertEqual(before,[])
+        self.assertEqual(meta['excluded_periods'][0]['reason'],'scheduled_session_not_finished')
+        result,meta=data.aggregate_daily(rows,'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-13T16:00:00+08:00')
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['period_end'],'2026-11-15')
+        self.assertEqual(result[0]['time'],'2026-11-13T15:30:00+08:00')
+        self.assertEqual(result[0]['completion_at'],'2026-11-13T15:30:00+08:00')
+        self.assertEqual(result[0]['available_at'],'2026-11-13T15:35:00+08:00')
+        self.assertEqual(result[0]['volume'],500)
+        self.assertEqual(meta['aggregation'],'completed_trading_session_periods')
+        self.assertEqual(meta['qualification'],'validated')
+
+    def test_holiday_last_thursday_session_does_not_assume_friday_trading(self):
+        dates=['2026-11-09','2026-11-10','2026-11-11','2026-11-12']
+        calendar=self.sessions(dates,'2026-11-09','2026-11-15')
+        result,meta=data.aggregate_daily(self.session_bars(dates),'1w','2026-11-12T15:30:00+08:00',calendar,asof='2026-11-12T16:00:00+08:00')
+        self.assertEqual(len(result),1)
+        self.assertEqual(result[0]['completion_at'],'2026-11-12T15:30:00+08:00')
+        self.assertEqual(meta['excluded_groups'],0)
+
+    def test_declared_vendor_schedule_does_not_certify_calendar_or_price(self):
+        dates=['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13']
+        calendar=self.sessions(dates,'2026-11-09','2026-11-15',verified=False)
+        result,meta=data.aggregate_daily(self.session_bars(dates),'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-15T12:00:00+08:00')
+        self.assertEqual(len(result),1)
+        self.assertFalse(meta['calendar_verified'])
+        self.assertFalse(meta['session_verified'])
+        self.assertEqual(meta['qualification'],'diagnostic')
+        legacy,_=data.aggregate_daily(self.session_bars(dates),'1w','2026-11-13T15:30:00+08:00',
+                                      {key:value for key,value in calendar.items() if key!='session_closes'})
+        self.assertEqual(legacy,[])
+
+    def test_verified_current_period_window_does_not_certify_whole_history(self):
+        dates=['2025-11-14','2026-11-13']
+        calendar=self.sessions(dates,'2025-01-01','2026-12-31',verified=False) | {
+            'session_verified':True, 'verification_start':'2026-01-01','verification_end':'2026-12-31',
+            'verification_source':'fictional independent 2026 date and holiday crosscheck'}
+        result,meta=data.aggregate_daily(self.session_bars(dates),'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-15T12:00:00+08:00')
+        self.assertEqual([row['period_completion_verified'] for row in result],[False,True])
+        self.assertTrue(meta['latest_period_completion_verified'])
+        self.assertFalse(meta['calendar_verified'])
+        self.assertEqual(meta['qualification'],'diagnostic')
+        self.assertEqual(meta['period_completion_evidence']['verification_end'],'2026-12-31')
+        missing,meta=data.aggregate_daily(self.session_bars(dates)[:-1],'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-15T12:00:00+08:00')
+        self.assertFalse(meta['latest_period_completion_verified'])
+        with self.assertRaisesRegex(ValueError,'独立核验来源'):
+            data.aggregate_daily(self.session_bars(dates),'1w','2026-11-13T15:30:00+08:00',calendar | {'verification_source':''},asof='2026-11-15T12:00:00+08:00')
+
+    def test_session_calendar_requires_full_period_and_each_expected_daily_bar(self):
+        dates=['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13']
+        calendar=self.sessions(dates,'2026-11-09','2026-11-15')
+        rows=self.session_bars(dates)
+        result,meta=data.aggregate_daily(rows[:-1],'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-15T12:00:00+08:00')
+        self.assertEqual(result,[])
+        self.assertEqual(meta['excluded_periods'][0]['missing_dates'],['2026-11-13'])
+        self.assertIn('suspension_unverified',meta['excluded_periods'][0]['reason'])
+        result,meta=data.aggregate_daily(rows,'1w','2026-11-13T15:30:00+08:00',calendar | {'coverage_end':'2026-11-13'},asof='2026-11-15T12:00:00+08:00')
+        self.assertEqual(result,[])
+        self.assertEqual(meta['uncovered_calendar_groups'],1)
+
+    def test_session_calendar_knowledge_and_bar_availability_are_not_backdated(self):
+        dates=['2026-11-13']
+        rows=self.session_bars(dates)
+        calendar=self.sessions(dates,'2026-11-09','2026-11-15',available='2026-11-14T09:00:00+08:00')
+        with self.assertRaisesRegex(ValueError,'日历版本晚于'):
+            data.aggregate_daily(rows,'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-13T20:00:00+08:00')
+        later,meta=data.aggregate_daily(rows,'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-14T10:00:00+08:00')
+        self.assertEqual(later[0]['available_at'],'2026-11-14T09:00:00+08:00')
+        old_calendar=calendar | {'available_at':'2026-01-01T10:00:00+08:00'}
+        rows[0]['available_at']='2026-11-13T20:00:00+08:00'
+        result,meta=data.aggregate_daily(rows,'1w','2026-11-13T15:30:00+08:00',old_calendar,asof='2026-11-13T16:00:00+08:00')
+        self.assertEqual(result,[])
+        self.assertEqual(meta['excluded_periods'][0]['reason'],'bar_incomplete_or_not_available')
+
+    def test_malformed_session_contract_is_rejected_not_silently_legacy(self):
+        dates=['2026-11-13']
+        calendar=self.sessions(dates,'2026-11-09','2026-11-15')
+        for bad in ({'session_closes':{}}, {'session_source':''}, {'available_at':'2026-11-13'},
+                    {'session_closes':{'2026-11-13':'2026-11-12T15:30:00+08:00'}}):
+            with self.subTest(bad=bad),self.assertRaises(ValueError):
+                data.aggregate_daily(self.session_bars(dates),'1w','2026-11-13T15:30:00+08:00',calendar | bad,asof='2026-11-15T12:00:00+08:00')
+        bad_rows=self.session_bars(dates)
+        bad_rows[0]['time']='2026-11-13T15:00:00+08:00'
+        with self.assertRaisesRegex(ValueError,'结束时刻'):
+            data.aggregate_daily(bad_rows,'1w','2026-11-13T15:30:00+08:00',calendar,asof='2026-11-15T12:00:00+08:00')
+
+    def test_month_half_year_and_year_complete_at_last_scheduled_session(self):
+        for frame,start,end,day in [('1mo','2026-01-01','2026-01-31','2026-01-30'),
+                                  ('6mo','2025-07-01','2025-12-31','2025-12-30'),
+                                  ('1y','2025-01-01','2025-12-31','2025-12-30')]:
+            with self.subTest(frame=frame):
+                calendar=self.sessions([day],start,end,available='2025-01-01T10:00:00+08:00')
+                result,meta=data.aggregate_daily(self.session_bars([day]),frame,day+'T15:30:00+08:00',calendar,asof=day+'T16:00:00+08:00')
+                self.assertEqual(len(result),1)
+                self.assertEqual(result[0]['period_end'],end)
+                self.assertEqual(result[0]['time'],day+'T15:30:00+08:00')
+                if frame!='1mo':
+                    self.assertTrue(meta['latest_completed_period_present'])
+                    self.assertEqual(meta['latest_expected_completed_period_end'],end)
+
     def test_week_month_exclude_current_unfinished_period(self):
         rows = [bar('2026-01-30T15:30:00+08:00'),bar('2026-02-02T15:30:00+08:00',11)]
         calendar=dict(trading_dates=['2026-01-30','2026-02-02'],verified=True,source='test',

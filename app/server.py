@@ -13,6 +13,7 @@ from .report_view import render_markdown
 from .store import ResearchStore
 from .research_tasks import ResearchTasks
 from .research_materials import ResearchSelectionRequired
+from .local_updates import LocalUpdates
 from . import PHASE
 
 REPO = Path(__file__).resolve().parents[1]
@@ -35,15 +36,21 @@ class PlatformServer(ThreadingHTTPServer):
         super().__init__(address, Handler)
         try:
             self.research = ResearchTasks(store, Path(project_dir))
+            self.local_updates = LocalUpdates(store)
         except Exception:
+            if hasattr(self, 'research'):
+                self.research.close()
             super().server_close()
             raise
 
     def shutdown(self):
+        self.local_updates.close()
         self.research.close()
         super().shutdown()
 
     def server_close(self):
+        if hasattr(self, 'local_updates'):
+            self.local_updates.close()
         if hasattr(self, 'research'):
             self.research.close()
         super().server_close()
@@ -140,7 +147,12 @@ class Handler(BaseHTTPRequestHandler):
                     "capabilities": {"archive_read": True, "watchlist_write": True, "technical_dashboard": True,
                         "fundamental_dashboard": True, "analyst_updates": True, "analyst_fetch": True,
                         "broker_formal_import": broker_compatibility['enabled'], "continuity": True,
-                        "continuity_review": True, "new_research": any(row['available'] for row in research_providers), "comparison": True}})
+                        "continuity_review": True, "new_research": any(row['available'] for row in research_providers), "comparison": True,
+                        "local_data_update": True}})
+            if path == "/api/local-data":
+                if set(query) != {"security_id"}:
+                    raise ValueError("Local data state requires one complete security identity")
+                return self.send_data(200, self.server.local_updates.public(self.one(query, "security_id")))
             if path == "/api/comparison":
                 if "security_ids" not in query or set(query) - {"security_ids", "asof", "period_basis", "financial_period", "price_window"}:
                     raise ValueError("Select two to five securities with declared comparison options")
@@ -247,11 +259,19 @@ class Handler(BaseHTTPRequestHandler):
                 "/api/research-resume": self.server.research.resume, "/api/research-answer": self.server.research.answer}
             if not 0 < size <= (32768 if path in research_operations else 4096) or self.headers.get("Transfer-Encoding"):
                 return self.fail(413, "请求大小不合法")
-            if query or path not in {"/api/watchlist", "/api/shutdown", "/api/analyst-refresh", "/api/analyst-fetch", "/api/continuity-review", "/api/analyst-archive", *research_operations}:
+            if query or path not in {"/api/watchlist", "/api/shutdown", "/api/analyst-refresh", "/api/analyst-fetch", "/api/continuity-review", "/api/analyst-archive", "/api/local-data-preview", "/api/local-data-run", *research_operations}:
                 return self.fail(404, "该操作尚未开放")
             body = json.loads(self.rfile.read(size))
             if path in research_operations:
                 return self.send_data(200, research_operations[path](body))
+            if path in {"/api/local-data-preview", "/api/local-data-run"}:
+                fields = {"security_id"} if path == "/api/local-data-preview" else {"security_id", "update_id"}
+                if (not isinstance(body, dict) or set(body) != fields
+                        or any(not isinstance(value, str) or not 1 <= len(value) <= 120 for value in body.values())):
+                    raise ValueError("Use the exact local-data request fields")
+                value = (self.server.local_updates.preview(body['security_id']) if path == "/api/local-data-preview"
+                         else self.server.local_updates.start(body['security_id'], body['update_id']))
+                return self.send_data(200, value)
             if path == "/api/continuity-review":
                 from .continuity_actions import save_review
                 return self.send_data(200, save_review(self.server.store, body))

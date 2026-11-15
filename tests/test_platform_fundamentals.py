@@ -107,6 +107,29 @@ class FundamentalProjectionTests(unittest.TestCase):
         self.assertFalse(value['research_executed'])
         self.assertEqual(value['observations'][0]['item_id'], 'OLD-CASH')
 
+    def test_local_financial_update_uses_its_new_tables_and_preserves_old_items(self):
+        updated = history_document()
+        updated['generated_at'] = '2026-11-13T18:00:00+08:00'
+        updated['local_data_update'] = {'schema_version': 'stock-local-data-update/1', 'update_id': 'U-FIXTURE'}
+        updated['tables']['cumulative']['rows'][-1]['revenue'] = 1400
+        self.append('LOCAL', {'financial-bottom-tables.json': updated}, role='incremental_research', parents=['F1'])
+        value = self.view()
+        self.assertEqual(value['components']['history']['result_id'], 'LOCAL')
+        self.assertEqual(value['latest']['revenue'], 1400)
+        self.assertEqual(value['observations'][0]['item_id'], 'OLD-CASH')
+        self.assertEqual(value['local_data_update']['update_id'], 'U-FIXTURE')
+        self.assertEqual(value['company_research_reference']['result_id'], 'F1')
+        self.assertIn('本轮仅重算财务', value['overview']['conclusion'])
+        self.assertIn('这是虚构经营观察', value['overview']['conclusion'])
+        self.assertFalse(value['research_executed'])
+
+    def test_unknown_local_financial_contract_cannot_replace_history(self):
+        updated = history_document()
+        updated['local_data_update'] = {'schema_version': 'unknown', 'update_id': 'U-FIXTURE'}
+        self.append('LOCAL', {'financial-bottom-tables.json': updated}, role='incremental_research', parents=['F1'])
+        with self.assertRaisesRegex(ValueError, 'Unknown local'):
+            self.view()
+
     def test_incremental_overlays_only_its_period_and_keeps_component_provenance(self):
         self.append('F2', {'calculations.json': self.incremental()}, role='incremental_research', parents=['F1'])
         before = {path: path.read_bytes() for path in self.root.rglob('*') if path.is_file()}

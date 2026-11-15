@@ -227,7 +227,8 @@ def technical_dashboard(store, security_id, period="1d", *, asof=None, date_from
         meta = _frame_metadata(store, record["security"], name, frames[name])
         count = len(frames[name].get("bars", []))
         result["period_states"].append({"period": name, "status": states.get(label, "原报告未提供简明周期状态"),
-            "qualification": meta.get("qualification", "unknown"), "data_asof": meta.get("data_asof"), "bar_count": count})
+            "qualification": meta.get("qualification", "unknown"), "data_asof": meta.get("data_asof"), "bar_count": count,
+            "period_completion_verified": meta.get("latest_period_completion_verified") is True})
         if count and frames[name].get("status") != "paused":
             result["available_periods"].append(name)
     result.update(summary=summary, explanations=explanations, conditions=conditions,
@@ -247,6 +248,9 @@ def technical_dashboard(store, security_id, period="1d", *, asof=None, date_from
     result.update(status="ok" if qualification == "validated" else "diagnostic", source_status="archived_snapshot",
                   qualification=qualification, adjustment=meta.get("adjustment"), data_asof=meta.get("data_asof"),
                   volume_unit=meta.get("volume_unit") if isinstance(meta.get("volume_unit"), str) else "unknown",
+                  period_completion={"verified": meta.get("latest_period_completion_verified") is True,
+                      "basis": meta.get("completion_basis"), "evidence": meta.get("period_completion_evidence"),
+                      "excluded_periods": meta.get("excluded_periods", [])},
                   bars=shown, source_bar_count=len(points), loaded_bar_count=len(shown), reason=None,
                   limitations=list(dict.fromkeys(document.get("limitations", []) + meta.get("limitations", []) + frame.get("limitations", []) +
                       ["MA5仅为同周期完整收盘序列的展示均值，先保留暖启动再切显示窗；不形成新研究或提升原资格。"])),

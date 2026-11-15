@@ -225,6 +225,14 @@ def fundamental_dashboard(store, security_id, asof=None):
     candidates = [row for row in context['results'] if row['result_id'] in allowed & full_ids
                   and any(item['relative_path'] == 'financial-bottom-tables.json' for item in row.get('attachments', []))]
     history_record = candidates[0] if candidates else None
+    if any(item['relative_path'] == 'financial-bottom-tables.json' for item in primary.get('attachments', [])):
+        current_tables = _read(store, primary, 'financial-bottom-tables.json')
+        local_update = current_tables.get('local_data_update')
+        if local_update is not None:
+            if (not isinstance(local_update, dict) or local_update.get('schema_version') != 'stock-local-data-update/1'
+                    or not isinstance(local_update.get('update_id'), str)):
+                raise ValueError('Unknown local financial update contract')
+            history_record = primary
     tables = None
     if history_record:
         history = _read(store, history_record, 'financial-bottom-tables.json')
@@ -236,6 +244,10 @@ def fundamental_dashboard(store, security_id, asof=None):
             result['cumulative'] = tables['cumulative']
             result['latest'] = tables['cumulative'][-1] if tables['cumulative'] else None
             result['latest_quarter'] = tables['quarterly'][-1] if tables['quarterly'] else None
+            if history.get('local_data_update'):
+                result['local_data_update'] = history['local_data_update']
+                result['limitations'].extend(history.get('provenance', {}).get('limitations', []))
+                result['limitations'].append('本次是本地财务专项快照和重算，不代表重新核验公司全部经营、行业及估值观点；原完整报告保留。')
     calculation = _calculation(store, primary)
     if calculation:
         document, kind = calculation
@@ -338,6 +350,21 @@ def fundamental_dashboard(store, security_id, asof=None):
             {'label': '下一证据', 'text': '沿原冻结定义核对下一次披露、交付和回款；打开看板不更新研究资格。'}]
     covered = (result['components']['latest'] or {}).get('result_id') == primary['result_id']
     result['status'] = 'ok' if covered and latest and result['annual'] and result['quarterly'] else 'partial'
+    if result.get('local_data_update'):
+        formal_ids = {row['result_id'] for row in roles['classified'] if row['content_role'] in {'full_research', 'incremental_research', 'correction'}}
+        previous = [row for row in context['results'] if row['module'] == 'fundamental'
+                    and row['result_id'] in allowed & formal_ids and row['result_id'] != primary['result_id']]
+        previous.sort(key=lambda row: store.lab.stamp(row['research_asof'], 'research_asof'), reverse=True)
+        for row in previous:
+            if any(item['relative_path'] == 'financial-bottom-tables.json' for item in row.get('attachments', [])):
+                if _read(store, row, 'financial-bottom-tables.json').get('local_data_update'):
+                    continue
+            result['company_research_reference'] = _source(row) | {'module': 'fundamental'}
+            result['overview']['conclusion'] = ('本轮仅重算财务；原公司判断沿用' + row['result_id'] + '（原研究截止'
+                + row['research_asof'] + '，未更新其资格）：' + _opening(store, row))
+            break
+        else:
+            result['overview']['conclusion'] = '本轮取得并重算本地财务数据，尚无完整公司判断；商业模式、行业、治理与估值仍需正式资料研究。'
     last_full_year = int(_research_day(primary)[:4]) - 1
     result['annual'] = [row for row in result['annual'] if last_full_year - 9 <= int(row['report_date'][:4]) <= last_full_year]
     result['quarterly'] = [row for row in result['quarterly'] if int(row['report_date'][:4]) >= last_full_year - 4]

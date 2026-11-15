@@ -22,6 +22,45 @@ IDENTITY = {"security_id": "ZZ-TEST-DEMO", "company": "虚构流程公司", "mar
 
 
 class PlatformHTTPTests(unittest.TestCase):
+    def test_local_data_state_is_read_only_authenticated_and_strict(self):
+        route = '/api/local-data?security_id=' + IDENTITY['security_id']
+        with patch.object(self.server.local_updates, 'public', return_value={'available':False,'reason':'虚构未配置','latest':None}) as call:
+            self.assertEqual(self.request('GET', route, authenticated=False)[0],401)
+            for invalid in ('/api/local-data', route+'&path=private', route+'&security_id=other'):
+                self.assertEqual(self.request('GET', invalid)[0],400)
+            status, _, body = self.request('GET',route)
+            self.assertEqual(status,200)
+            self.assertIsNone(json.loads(body)['latest'])
+            call.assert_called_once_with(IDENTITY['security_id'])
+
+    def test_local_data_preview_retains_write_origin_and_exact_body_guards(self):
+        headers={'Origin':self.server.origin,'X-CSRF-Token':self.server.csrf,'Content-Type':'application/json'}
+        payload={'security_id':IDENTITY['security_id']}
+        result={'update_id':'LOCAL-FICTIONAL','security':IDENTITY,'status':'preview','output_kind':'quantitative_update'}
+        with patch.object(self.server.local_updates,'preview',return_value=result) as call:
+            self.assertEqual(self.request('POST','/api/local-data-preview',json.dumps(payload),{**headers,'Origin':'https://evil.example'})[0],403)
+            self.assertEqual(self.request('POST','/api/local-data-preview',json.dumps(payload),{**headers,'X-CSRF-Token':'wrong'})[0],403)
+            self.assertEqual(self.request('POST','/api/local-data-preview',json.dumps(payload|{'path':'private'}),headers)[0],400)
+            self.assertEqual(self.request('POST','/api/local-data-preview?security_id=other',json.dumps(payload),headers)[0],404)
+            status,_,body=self.request('POST','/api/local-data-preview',json.dumps(payload),headers)
+            self.assertEqual(status,200)
+            self.assertEqual(json.loads(body)['update_id'],'LOCAL-FICTIONAL')
+            call.assert_called_once_with(IDENTITY['security_id'])
+
+    def test_local_data_run_forwards_the_confirmed_update_identity_only(self):
+        headers={'Origin':self.server.origin,'X-CSRF-Token':self.server.csrf,'Content-Type':'application/json'}
+        payload={'security_id':IDENTITY['security_id'],'update_id':'LOCAL-FICTIONAL'}
+        result={'update_id':'LOCAL-FICTIONAL','security':IDENTITY,'status':'queued','output_kind':'quantitative_update'}
+        with patch.object(self.server.local_updates,'start',return_value=result) as call:
+            self.assertEqual(self.request('POST','/api/local-data-run','{}',headers)[0],400)
+            self.assertEqual(self.request('POST','/api/local-data-run',json.dumps(payload|{'scope':'other'}),headers)[0],400)
+            for _ in range(2):
+                status,_,body=self.request('POST','/api/local-data-run',json.dumps(payload),headers)
+                self.assertEqual(status,200)
+                self.assertEqual(json.loads(body)['update_id'],'LOCAL-FICTIONAL')
+            self.assertEqual(call.call_count,2)
+            call.assert_called_with(IDENTITY['security_id'],'LOCAL-FICTIONAL')
+
     def test_old_item_batch_limit_reaches_page_without_starting_a_task(self):
         from app.research_materials import ResearchSelectionRequired
         headers = {'Origin':self.server.origin, 'X-CSRF-Token':self.server.csrf, 'Content-Type':'application/json'}

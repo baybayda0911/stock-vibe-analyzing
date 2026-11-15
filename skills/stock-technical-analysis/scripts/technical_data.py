@@ -88,7 +88,35 @@ def combine(rows):
     return result
 
 
-def aggregate_daily(bars, frame, cutoff, calendar=None):
+def calendar_session_closes(calendar, supplied, asof):
+    if 'session_closes' not in calendar:
+        return None
+    closes = calendar['session_closes']
+    if not isinstance(closes, dict) or set(closes) != set(supplied) or not closes:
+        raise ValueError('calendar.session_closes须与全部计划交易日期一一对应')
+    for field in ('source', 'session_source'):
+        if not isinstance(calendar.get(field), str) or not calendar[field].strip():
+            raise ValueError('交易会话完成策略须声明日历和会话来源')
+    if moment(calendar.get('available_at')) > moment(asof):
+        raise ValueError('日历版本晚于本次可知截止，不能回填历史研究')
+    if type(calendar.get('session_verified', False)) is not bool:
+        raise ValueError('calendar.session_verified须为布尔值')
+    if 'verification_start' in calendar or 'verification_end' in calendar:
+        start, end = date.fromisoformat(calendar.get('verification_start', '')), date.fromisoformat(calendar.get('verification_end', ''))
+        if start > end or not isinstance(calendar.get('verification_source'), str) or not calendar['verification_source'].strip():
+            raise ValueError('日历核验区间须有有效起止及独立核验来源')
+    parsed = {}
+    for day, stamp in closes.items():
+        if not isinstance(day, str) or date.fromisoformat(day).isoformat() != day:
+            raise ValueError('交易日历须使用完整ISO日期')
+        at = moment(stamp).astimezone(TZ)
+        if at.date().isoformat() != day:
+            raise ValueError('交易会话结束时刻与所属交易日不一致')
+        parsed[day] = at
+    return parsed
+
+
+def aggregate_daily(bars, frame, cutoff, calendar=None, *, asof=None):
     if frame not in ('1w', '1mo', '6mo', '1y'):
         raise ValueError('只允许日线聚合周/月/半年/年')
     groups = defaultdict(list)
@@ -96,34 +124,72 @@ def aggregate_daily(bars, frame, cutoff, calendar=None):
         groups[period_key(row['time'], frame)].append(row)
     result, incomplete, uncovered = [], 0, 0
     unfinished_periods, incomplete_date_periods = [], []
+    excluded_periods = []
     calendar = calendar or {}
     supplied = calendar.get('trading_dates', [])
     if not isinstance(supplied, list) or len(set(supplied)) != len(supplied):
         raise ValueError('calendar.trading_dates须无重复日期数组')
-    for key, rows in sorted(groups.items()):
+    knowledge = asof or cutoff
+    if moment(cutoff) > moment(knowledge):
+        raise ValueError('市场截止不能晚于本次可知截止')
+    sessions = calendar_session_closes(calendar, supplied, knowledge)
+
+    def period_calendar(key):
         ending = period_end(key, frame)
-        if datetime.combine(ending, time.max, TZ) > moment(cutoff):
-            incomplete += 1
-            unfinished_periods.append(ending.isoformat())
-            continue
+        expected = {x for x in supplied if period_key(x+'T00:00:00+08:00', frame) == key}
+        covered = bool(expected and calendar.get('coverage_start') and calendar.get('coverage_end') and
+                       date.fromisoformat(calendar['coverage_start']) <= period_start(key, frame) and
+                       date.fromisoformat(calendar['coverage_end']) >= ending)
+        completion = sessions[max(expected)] if sessions is not None and covered else datetime.combine(ending, time.max, TZ)
+        return ending, expected, covered, completion
+
+    for key, rows in sorted(groups.items()):
+        ending, expected, covered, completion = period_calendar(key)
         actual = {moment(x['time']).astimezone(TZ).date().isoformat() for x in rows}
         if len(actual) != len(rows):
             raise ValueError('日线聚合每个交易日只能有一根行情')
-        expected = {x for x in supplied if period_key(x+'T00:00:00+08:00', frame) == key}
-        start_of_period = period_start(key, frame)
-        covered = bool(expected and calendar.get('coverage_start') and calendar.get('coverage_end') and
-                       date.fromisoformat(calendar['coverage_start'])<=start_of_period and
-                       date.fromisoformat(calendar['coverage_end'])>=ending)
+        if sessions is not None and not covered:
+            uncovered += 1
+            excluded_periods.append({'period_end': ending.isoformat(), 'reason': 'calendar_coverage_incomplete'})
+            continue
+        if completion > moment(cutoff):
+            incomplete += 1
+            unfinished_periods.append(ending.isoformat())
+            excluded_periods.append({'period_end': ending.isoformat(), 'reason': 'scheduled_session_not_finished' if sessions is not None else 'natural_period_not_finished',
+                                     'completion_at': completion.isoformat()})
+            continue
         if (supplied or frame in ('6mo', '1y')) and not covered:
             uncovered += 1
+            excluded_periods.append({'period_end': ending.isoformat(), 'reason': 'calendar_coverage_incomplete'})
             continue
         if expected and expected != actual:
             incomplete += 1
             incomplete_date_periods.append(ending.isoformat())
+            excluded_periods.append({'period_end': ending.isoformat(), 'reason': 'trading_dates_mismatch_suspension_unverified',
+                                     'missing_dates': sorted(expected - actual), 'unexpected_dates': sorted(actual - expected)})
             continue
+        if sessions is not None:
+            if any(moment(row['time']) != sessions[day] for row in rows for day in [moment(row['time']).astimezone(TZ).date().isoformat()]):
+                raise ValueError('日线结束时刻与声明交易会话不一致')
+            if any(row.get('completed') is not True or moment(row.get('available_at', row['time'])) > moment(knowledge) for row in rows):
+                incomplete += 1
+                excluded_periods.append({'period_end': ending.isoformat(), 'reason': 'bar_incomplete_or_not_available'})
+                continue
         value = combine(rows)
         value['period_end'] = ending.isoformat()
+        if sessions is not None:
+            value['completion_at'] = completion.isoformat()
+            value['available_at'] = max((value['available_at'], calendar['available_at'], completion.isoformat()), key=moment)
+            value['completion_basis'] = 'declared_trading_session_closes'
+            value['period_completion_verified'] = bool(calendar.get('session_verified') is True and
+                calendar.get('verification_start') and calendar.get('verification_end') and
+                date.fromisoformat(calendar['verification_start']) <= period_start(key, frame) and
+                date.fromisoformat(calendar['verification_end']) >= ending)
         result.append(value)
+    latest_key = period_key(cutoff, frame)
+    if period_calendar(latest_key)[3] > moment(cutoff):
+        prior_day = period_start(latest_key, frame) - timedelta(days=1)
+        latest_key = period_key(prior_day.isoformat()+'T00:00:00+08:00', frame)
     continuity = {}
     if frame in ('6mo', '1y'):
         all_complete = result
@@ -136,9 +202,6 @@ def aggregate_daily(bars, frame, cutoff, calendar=None):
             first -= 1
         excluded_history = all_complete[:max(first, 0)]
         result = all_complete[max(first, 0):]
-        latest_key = period_key(cutoff, frame)
-        if datetime.combine(period_end(latest_key, frame), time.max, TZ) > moment(cutoff):
-            latest_key = previous_long_period(latest_key, frame)
         missing_tail = []
         if result:
             selected_key = period_key(result[-1]['period_end']+'T00:00:00+08:00', frame)
@@ -156,15 +219,30 @@ def aggregate_daily(bars, frame, cutoff, calendar=None):
             missing_trailing_periods=list(reversed(missing_tail)),
             latest_completed_period_present=bool(result and not missing_tail),
             data_asof=result[-1]['time'] if result else None)
-    verified = bool(result and supplied and calendar.get('verified') is True and calendar.get('source'))
+    verified = bool(result and supplied and calendar.get('verified') is True and calendar.get('source') and
+                    (sessions is None or calendar.get('session_verified') is True))
     limitations = [] if verified else ['交易日历未独立核验，聚合仅诊断；半年/年须有覆盖完整期间的交易日期']
     if continuity.get('excluded_discontinuous_groups'):
         limitations.append('历史完整期间存在断档；仅最近连续完整段参与计算，较早完整断段保留于元数据，不跨缺期计算指标')
     if continuity.get('missing_trailing_periods'):
         limitations.append('最新应有完整期间缺失；当前连续段仅截至'+continuity['selected_latest_period_end']+'，须按data_asof理解，不能作为最新长周期状态')
-    return result, {'aggregation': 'completed_calendar_periods', 'excluded_groups': incomplete,
+    latest_verified = bool(sessions is not None and result and result[-1].get('period_completion_verified') and
+                           result[-1]['period_end'] == period_end(latest_key, frame).isoformat())
+    return result, {'aggregation': 'completed_trading_session_periods' if sessions is not None else 'completed_calendar_periods', 'excluded_groups': incomplete,
                     'uncovered_calendar_groups': uncovered,
                     'calendar_verified': verified,
+                    'session_verified': bool(sessions is not None and calendar.get('session_verified') is True),
+                    'completion_basis': 'declared_trading_session_closes' if sessions is not None else 'natural_period_end_legacy',
+                    'calendar_available_at': calendar.get('available_at') if sessions is not None else None,
+                    'calendar_source': calendar.get('source'),
+                    'session_source': calendar.get('session_source') if sessions is not None else None,
+                    'latest_period_completion_verified': latest_verified,
+                    'period_completion_evidence': {'verification_start': calendar.get('verification_start'),
+                        'verification_end': calendar.get('verification_end'), 'verification_source': calendar.get('verification_source'),
+                        'session_source': calendar.get('session_source'), 'calendar_available_at': calendar.get('available_at'),
+                        'latest_expected_period_end': period_end(latest_key, frame).isoformat(),
+                        'selected_period_end': result[-1]['period_end'] if result else None} if sessions is not None else None,
+                    'excluded_periods': excluded_periods,
                     'qualification': 'validated' if verified and not continuity.get('missing_trailing_periods') else 'diagnostic',
                     'limitations': limitations, **continuity}
 
@@ -322,7 +400,7 @@ def prepare_inputs(request, request_path):
                 if aggregation_error:
                     results[frame]={'status':'unavailable','bars':[], 'metadata':{'limitations':['聚合来源错误:'+aggregation_error]}}
                     continue
-                bars, aggregation = aggregate_daily(daily['bars'], frame, cutoff, request.get('calendar'))
+                bars, aggregation = aggregate_daily(daily['bars'], frame, cutoff, request.get('calendar'), asof=request['asof'])
                 meta = dict(daily['metadata'])
                 meta.update(aggregation)
                 meta['limitations']=list(daily['metadata'].get('limitations',[]))+aggregation['limitations']

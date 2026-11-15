@@ -65,7 +65,7 @@ class FakeResearch:
 class ResearchRouteTests(unittest.TestCase):
     def setUp(self):
         self.manager = FakeResearch()
-        with patch('app.server.ResearchTasks', return_value=self.manager):
+        with patch('app.server.ResearchTasks', return_value=self.manager), patch('app.server.LocalUpdates'):
             self.server = PlatformServer(('127.0.0.1', 0), SimpleNamespace(), Path.cwd())
         self.thread = threading.Thread(target=self.server.serve_forever, kwargs={'poll_interval': 0.01}, daemon=True)
         self.thread.start()

@@ -155,6 +155,17 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(before, {path: (self.root / path).read_bytes() for path in before})
         json.dumps(result, allow_nan=False)
 
+    def test_period_completion_proof_does_not_upgrade_raw_price_qualification(self):
+        metadata = self.document['timeframes']['1w']['metadata']
+        metadata.update(latest_period_completion_verified=True, completion_basis='declared_trading_session_closes',
+                        period_completion_evidence={'verification_start':'2026-01-01','verification_end':'2026-12-31'})
+        self.append(document=self.document, role='incremental_research')
+        value = self.view('1w')
+        self.assertTrue(value['period_completion']['verified'])
+        self.assertEqual(value['qualification'], 'diagnostic')
+        self.assertFalse(value['adjustment']['verified'])
+        self.assertTrue(next(row for row in value['period_states'] if row['period']=='1w')['period_completion_verified'])
+
     def test_s4_numbered_reasons_and_next_observation_reach_dashboard(self):
         self.fixture['report'].write_text('# 虚构S4技术研究\n\n**日线判断：冻结日线偏弱。**\n\n'
             '> 继承原行情，未重新计算。\n\n## 三条依据\n\n'

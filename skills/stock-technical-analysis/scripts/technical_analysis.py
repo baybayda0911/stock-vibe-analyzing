@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import html
 import json
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -938,7 +939,11 @@ def archive_result(request,document,target):
     extensions={'.png':'image/png','.html':'text/html','.json':'application/json'}
     attachments=[dict(source_file=str(p),relative_path=p.name,media_type=extensions[p.suffix])
                  for p in sorted(target.iterdir()) if p.suffix in extensions and p.name!='archive-status.json']
-    archive=dict(security=request['security'],module='technical',module_version='0.4.1',
+    frontmatter=(Path(__file__).resolve().parents[1]/'SKILL.md').read_text(encoding='utf-8-sig').split('---',2)[1]
+    versions=re.findall(r'^  version: ["\x27]?(\d+\.\d+\.\d+)["\x27]?\s*$',frontmatter,re.MULTILINE)
+    if len(versions)!=1:
+        raise ValueError('技术Skill版本缺失或不唯一，未归档')
+    archive=dict(security=request['security'],module='technical',module_version=versions[0],
         result_id=config['result_id'],generated_at=document['generated_at'],research_asof=document['information_cutoff'],
         data_asof=document['timeframes'].get('1d',{}).get('metadata',{}).get('data_asof'),
         parent_result_ids=config.get('parent_result_ids',[]),report_file=str(target/'report.md'),

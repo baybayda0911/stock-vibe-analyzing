@@ -7,6 +7,12 @@ const formalRoles = new Set(['full_research', 'incremental_research', 'correctio
 const sourceRoles = new Set(['broker_source', 'source_adaptation']);
 const state = {bootstrap: null, securities: new Map(), watchlist: [], selected: null, contexts: new Map(), technical: new Map(), fundamental: new Map(), analyst: new Map(), continuity: new Map(), tasks: new Map(), tasksStatus: 'idle', tasksError: '', selectedTaskId: null, taskRenderKey: '', page: 'overview', generation: 0, selection: 0, saving: false, techPeriod: '1d', homePeriod: '1d', finPeriod: 'quarterly', indicator: 'macd', chartWindow: 60, chartStart: null, ma: new Set(['ma5']), draft: null, draftSecurity: null};
 state.comparison = {pool: [], status: 'idle', data: null, error: ''};
+state.localData = new Map();
+let localDataReadVersion = 0;
+let localDataPollTimer;
+const localDataPending = new Set();
+const localDataResultsSeen = new Set();
+const localDataStatuses = {prepared: '范围已核对，等待你确认', queued: '等待重算', running: '正在重算', completed: '新快照已保存', partial: '部分成果已保存', failed: '更新未完成', interrupted: '重算已中断'};
 let comparisonReadVersion = 0;
 let comparisonController;
 let comparisonRenderKey = '';
@@ -218,6 +224,7 @@ function showPage(name, focus = true) {
   byId('company-navigation').hidden = !companyPages.includes(name);
   document.querySelectorAll('[data-company-page]').forEach(node => node.setAttribute('aria-pressed', String(node.dataset.companyPage === name)));
   updateFirstResearch();
+  renderLocalData();
   if (name === 'company') renderCompanyOverview();
   if (name === 'tasks') { renderTasks(); refreshTasks(true); }
   if (name === 'comparison') renderComparison();
@@ -243,6 +250,7 @@ function updateIdentity() {
 }
 
 function selectSecurity(security, focus = true) {
+  clearTimeout(localDataPollTimer);
   state.selection++;
   document.querySelectorAll('dialog').forEach(dialog => { if (dialog.open) dialog.close(); });
   state.selected = security;
@@ -264,6 +272,7 @@ function selectSecurity(security, focus = true) {
   ensureProjection(security, 'fundamental');
   ensureProjection(security, 'analyst');
   ensureProjection(security, 'continuity');
+  ensureLocalData(security);
   if (focus) {
     byId('current-company').tabIndex = -1;
     byId('current-company').focus({preventScroll: true});
@@ -437,7 +446,7 @@ function readable(record) {
 function openRecord(record, trigger) {
   if (!readable(record)) return;
   readerTrigger = trigger || document.activeElement;
-  const title = moduleNames[recordModule(record)] || '研究档案';
+  const title = record.output_kind === 'quantitative_update' ? (record.module === 'fundamental' ? '财务专项快照' : '技术重算快照') : moduleNames[recordModule(record)] || '研究档案';
   byId('reader-title').textContent = title + ' · ' + recordId(record);
   byId('reader-meta').textContent = (recordRole(record) === 'broker_source' ? '原发布：' + publicationLabel(record) + ' ｜ 补充资料，不替代正式研究' : '研究日期：' + dateLabel(record.research_asof) + (recordRole(record) === 'source_adaptation' ? ' ｜ 补充研究解读，不替代正式研究；原研报发布日期见父来源' : '')) + ' ｜ 资料截止：' + dateLabel(record.data_asof) + ' ｜ 生成／导入：' + dateLabel(record.generated_at);
   const assets = byId('reader-assets');
@@ -947,7 +956,13 @@ function renderFundamental() {
     const span = element('span', name); span.setAttribute('title', text(value)); span.append(element('strong', dateLabel(value))); provenance.append(span);
   }
   byId('fundamental-thesis').textContent = data.overview?.conclusion || '按已归档正式研究阅读，缺失内容不补造。';
-  byId('fundamental-thesis-note').textContent = '正式研究：' + source.result_id + '。图表沿用各组件实际覆盖，不因研报取得较晚更新主结论。';
+  const companyReference = data.company_research_reference;
+  const thesisNote = byId('fundamental-thesis-note');
+  thesisNote.textContent = companyReference ? '本轮数值快照：' + source.result_id + '；公司观点沿用原研究，不更新其日期或使用资格。' : '正式研究：' + source.result_id + '。图表沿用各组件实际覆盖，不因研报取得较晚更新主结论。';
+  if (companyReference) {
+    thesisNote.append(element('span', ' 原公司研究：' + companyReference.result_id + '；原研究截止：' + dateLabel(companyReference.research_asof) + '。'));
+    if (companyReference.report_id) { const read = readButton({...companyReference, module: 'fundamental'}); read.textContent = '阅读旧公司研究（未更新）'; thesisNote.append(read); }
+  }
   const latest = data.latest || {}, cards = byId('fundamental-cards'); cards.replaceChildren();
   cards.append(metricCard('累计营收', valueLabel(finite(latest.revenue) ? latest.revenue / 1e8 : null) + ' 亿元', latest.report_date || '所属期未核'), metricCard('累计归母净利润', valueLabel(finite(latest.parent_profit) ? latest.parent_profit / 1e8 : null) + ' 亿元', '归属上市公司股东'), metricCard('现金转化率', valueLabel(finite(latest.cash_conversion) ? latest.cash_conversion * 100 : null) + '%', '经营现金流／合并净利润'), metricCard('累计简化自由现金流', valueLabel(finite(latest.fcf) ? latest.fcf / 1e8 : null) + ' 亿元', '经营现金流－购建长期资产现金'));
   const highlights = byId('fundamental-highlights'); highlights.replaceChildren();
@@ -1376,12 +1391,13 @@ function renderTechnicalPanel() {
   const priceBasisLabel = priceBasis + (data.adjustment?.verified === false ? '（未认证）' : '');
   const provenance = byId('technical-provenance');
   provenance.replaceChildren();
-  for (const [name, value] of [['研究截止', source.research_asof], ['价格资料截止', data.data_asof || source.data_asof], ['报告生成', source.generated_at], ['计算生成', source.analysis_generated_at || data.generated_at], ['价格口径', priceBasisLabel], ['使用资格', qualificationLabel(data)]]) {
+  for (const [name, value] of [['研究截止', source.research_asof], ['价格资料截止', data.data_asof || source.data_asof], ['报告生成', source.generated_at], ['计算生成', source.analysis_generated_at || data.generated_at], ['价格口径', priceBasisLabel], ['使用资格', qualificationLabel(data)], ['周期完成核对', data.period_completion?.verified === true ? '所选期已核（仅声明窗口）' : '未认证／见来源']]) {
     const item = element('span', name);
     item.setAttribute('title', text(value));
     item.append(element('strong', name.includes('截止') || name.includes('生成') ? dateLabel(value) : value));
     provenance.append(item);
   }
+  provenance.append(element('span', '周期完成核对不提升价格或复权资格。', 'hint'));
   byId('technical-thesis').textContent = data.summary?.title || '按已归档序列查看量价结构';
   const summaryReason = data.summary?.period !== '1d' && data.summary?.reason?.includes('三条依据') ? '' : data.summary?.reason;
   byId('technical-thesis-note').textContent = [summaryReason, '三条依据与后续条件沿用原报告日线研究；切图不生成新结论。'].filter(Boolean).join(' ');
@@ -1405,6 +1421,7 @@ function renderTechnicalPanel() {
     if (original) {
       status.append(element('small', text(original.bar_count ?? original.source_bar_count ?? '未知') + '根 · ' + shortDate(original.data_asof)));
       status.append(element('small', typeof original.qualification === 'string' ? original.qualification : original.qualification?.status || '资格见原快照'));
+      if (original.period_completion_verified === true) status.append(element('small', '完成期已核', 'tag accent'));
     }
     row.append(element('strong', periodNames[period]), status);
     states.append(row);
@@ -1572,6 +1589,111 @@ function changeWindow(value) {
   const data = technicalEntry()?.data;
   if (data) drawTechnicalChart(data);
   saveViewPreferences();
+}
+
+function localDataEnabled() { return state.bootstrap?.capabilities?.local_data_update === true; }
+
+function checkedLocalJob(job, security) {
+  if (!job || job.output_kind !== 'quantitative_update' || typeof job.update_id !== 'string' || !job.update_id || job.update_id.length > 128 || !Object.hasOwn(localDataStatuses, job.status) || !job.security || ['security_id', 'market', 'exchange', 'code', 'share_class', 'currency'].some(key => job.security[key] !== security[key])) throw new Error('本地更新返回的证券或快照身份不匹配，已停止展示。');
+  if (list(job.results).some(row => typeof row.result_id !== 'string' || row.report_id !== 'result:' + row.result_id || !['fundamental', 'technical'].includes(row.module))) throw new Error('本地更新成果引用不完整，请在档案室核对。');
+  return job;
+}
+
+function refreshLocalResults(job) {
+  const key = job.update_id + '|' + list(job.results).map(row => row.result_id).join('|');
+  if (!list(job.results).length || localDataResultsSeen.has(key)) return;
+  localDataResultsSeen.add(key);
+  const security = job.security, sid = security.security_id;
+  state.contexts.delete(sid); state.fundamental.delete(sid); state.continuity.delete(sid);
+  for (const key of state.technical.keys()) if (key.startsWith(sid + '|')) state.technical.delete(key);
+  ensureContext(security); ensureProjection(security, 'fundamental'); ensureProjection(security, 'continuity');
+  if (isTracked(sid)) ensureTechnical(security, state.homePeriod, 60);
+  if (state.selected?.security_id === sid) ensureTechnical(security, state.techPeriod);
+  if (state.comparison.pool.some(row => row.security_id === sid)) invalidateComparison();
+}
+
+function pollLocalData(security, job) {
+  if (state.selected?.security_id !== security.security_id || !['queued', 'running'].includes(job?.status)) return;
+  clearTimeout(localDataPollTimer);
+  localDataPollTimer = setTimeout(() => ensureLocalData(security, true), 2500);
+}
+
+async function ensureLocalData(security, reload = false) {
+  if (!localDataEnabled() || !security?.security_id) return;
+  const sid = security.security_id, current = state.localData.get(sid);
+  if (!reload && current) return current.promise;
+  const generation = state.generation, version = ++localDataReadVersion;
+  const entry = {status: 'loading', data: current?.data || null, error: '', version};
+  state.localData.set(sid, entry); renderLocalData();
+  entry.promise = api('/api/local-data?security_id=' + encodeURIComponent(sid)).then(data => {
+    if (generation !== state.generation || state.localData.get(sid)?.version !== version) return;
+    if (!data || typeof data.available !== 'boolean') throw new Error('本地更新状态未通过核对。');
+    if (data.latest) checkedLocalJob(data.latest, security);
+    entry.status = 'ready'; entry.data = data;
+    if (data.latest) refreshLocalResults(data.latest);
+    pollLocalData(security, data.latest);
+  }).catch(error => {
+    if (generation !== state.generation || state.localData.get(sid)?.version !== version) return;
+    entry.status = 'error'; entry.error = error.message;
+  }).finally(() => { if (generation === state.generation) renderLocalData(); });
+  return entry.promise;
+}
+
+async function operateLocalData(action) {
+  const security = state.selected;
+  if (!['preview', 'run'].includes(action) || !localDataEnabled() || !security || !state.bootstrap?.csrf_token || localDataPending.has(security.security_id)) return;
+  const sid = security.security_id, previous = state.localData.get(sid), job = previous?.data?.latest;
+  if (action === 'run' && (!job || !['prepared', 'failed', 'partial', 'interrupted'].includes(job.status))) return;
+  const generation = state.generation, version = ++localDataReadVersion;
+  const entry = {status: 'loading', data: previous?.data || null, error: '', version};
+  state.localData.set(sid, entry); localDataPending.add(sid); clearTimeout(localDataPollTimer); renderLocalData();
+  try {
+    const result = checkedLocalJob(await api('/api/local-data-' + action, writeOptions(action === 'preview' ? {security_id: sid} : {security_id: sid, update_id: job.update_id})), security);
+    if (generation !== state.generation || state.localData.get(sid)?.version !== version) return;
+    entry.status = 'ready'; entry.data = {available: true, reason: previous?.data?.reason || '', latest: result};
+    refreshLocalResults(result); pollLocalData(security, result);
+  } catch (error) {
+    if (generation === state.generation && state.localData.get(sid)?.version === version) { entry.status = 'error'; entry.error = '本次操作尚未确认：' + error.message + '。请先读取状态，不要另开重算。'; }
+  } finally { localDataPending.delete(sid); renderLocalData(); }
+}
+
+function renderLocalData() {
+  const control = byId('local-data-check'), panel = byId('local-data-panel'), security = state.selected;
+  const entry = security && state.localData.get(security.security_id), data = entry?.data, job = data?.latest;
+  const enabled = localDataEnabled(), pending = security && localDataPending.has(security.security_id);
+  control.textContent = pending ? '正在处理本地数据…' : '检查本地数据';
+  control.hidden = !enabled;
+  control.disabled = !security || !enabled || pending || entry?.status === 'loading' || data?.available === false || ['queued', 'running'].includes(job?.status);
+  panel.hidden = !enabled || !companyPages.includes(state.page) || !security || !entry || !pending && entry.status !== 'error' && !job && data?.available !== false;
+  const status = byId('local-data-state'), results = byId('local-data-results'), actions = byId('local-data-actions');
+  status.replaceChildren(); results.replaceChildren(); actions.replaceChildren();
+  if (panel.hidden) return;
+  if (entry.status === 'error') {
+    status.append(element('p', entry.error, 'notice'));
+    actions.append(button('读取本地更新状态', () => ensureLocalData(security, true), 'button'));
+  }
+  if (entry.status === 'loading') status.append(element('p', pending ? '正在处理本次明确操作…' : '正在核对已保存的更新状态…', 'hint'));
+  if (data?.available === false) status.append(element('p', data.reason || '本机数据源尚未就绪，未执行重算。', 'hint'));
+  if (!job) return;
+  status.append(element('strong', securityLabel(job.security) + ' · ' + localDataStatuses[job.status]));
+  status.append(element('p', job.stage_label || '按冻结范围执行，原档保留。'));
+  status.append(element('p', '检查：' + dateLabel(job.created_at) + '；最近更新：' + dateLabel(job.updated_at), 'hint'));
+  const summary = job.summary || {};
+  const calendar = summary.calendar_scope;
+  const calendarLabel = typeof calendar === 'string' ? calendar : Number.isInteger(calendar?.year) && typeof calendar.matched === 'boolean' ? calendar.year + '年常规交易日' + (calendar.matched ? '已对照，仅声明范围' : '尚未核齐，不能认证完成期') : '完成会话与可得时点分别核对';
+  const info = element('dl', undefined, 'facts'); status.append(info);
+  facts(info, [
+    ['财务所属期', summary.financial_period || '未取得'], ['财务版本', Number.isFinite(summary.financial_versions) ? summary.financial_versions + ' 条' : '未核'],
+    ['日线末端', summary.market_last_date || '未取得'], ['日线观察', Number.isFinite(summary.daily_bars) ? summary.daily_bars + ' 根' : '未核'],
+    ['周期依据', calendarLabel]]);
+  for (const reason of list(summary.limitations)) status.append(element('p', reason, 'hint'));
+  if (job.error) status.append(element('p', job.error, 'notice'));
+  for (const result of list(job.results)) {
+    const archived = list(state.contexts.get(security.security_id)?.data?.results).find(row => row.result_id === result.result_id);
+    const row = element('div'); row.append(element('strong', result.module === 'fundamental' ? '财务专项快照' : '技术重算快照'), readButton({...result, ...archived, output_kind: 'quantitative_update'})); results.append(row);
+  }
+  if (!pending && entry.status === 'ready' && ['prepared', 'failed', 'partial', 'interrupted'].includes(job.status)) actions.append(button(job.status === 'prepared' ? '重算并保存新快照' : '继续同一更新', () => operateLocalData('run'), 'button primary'));
+  if (job.status === 'completed') status.append(element('p', '新数值已保存，完整公司观点与旧判断仍须按各自日期和证据核对。', 'hint'));
 }
 
 function researchProviders() { return list(state.bootstrap?.research_providers); }
@@ -2132,6 +2254,7 @@ function renderComparison() {
 }
 
 function renderData() {
+  renderLocalData();
   updateFirstResearch();
   renderSummary();
   renderWatchlist(byId('overview-watchlist'));
@@ -2152,6 +2275,7 @@ async function initialize() {
   invalidateComparison();
   if (!byId('comparison-asof').value) byId('comparison-asof').value = new Date().toLocaleDateString('sv-SE', {timeZone: 'Asia/Shanghai'});
   ++tasksReadVersion; clearTimeout(taskPollTimer);
+  clearTimeout(localDataPollTimer); state.localData.clear();
   state.contexts.clear();
   state.technical.clear();
   state.fundamental.clear();
@@ -2313,6 +2437,7 @@ byId('security-search').addEventListener('keydown', event => {
 });
 byId('toggle-watchlist').addEventListener('click', toggleWatchlist);
 byId('refresh-data').addEventListener('click', initialize);
+byId('local-data-check').addEventListener('click', () => operateLocalData('preview'));
 byId('new-security-button').addEventListener('click', () => {
   byId('security-query').focus();
   searchSecurities();

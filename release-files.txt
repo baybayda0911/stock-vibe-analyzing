@@ -97,3 +97,9 @@ tests/test_server.py
 app/comparison.py
 tests/test_comparison.py
 tests/test_comparison_inputs.py
+app/local_financial.py
+app/local_market.py
+app/local_updates.py
+tests/test_local_financial.py
+tests/test_local_market.py
+tests/test_local_updates.py

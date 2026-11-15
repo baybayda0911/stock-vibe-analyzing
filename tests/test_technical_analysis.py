@@ -155,7 +155,7 @@ class TechnicalAnalysisTests(unittest.TestCase):
         archived=app.read_json(out/'archive-request.json')
         self.assertEqual(archived['research_asof'],doc['information_cutoff'])
         self.assertEqual(archived['generated_at'],doc['generated_at'])
-        self.assertEqual(archived['module_version'],'0.4.1')
+        self.assertEqual(archived['module_version'],'0.5.0')
 
     def test_narrative_keeps_histogram_improvement_distinct_from_dif_and_rsi(self):
         doc=app.calculate(self.request,self.path)

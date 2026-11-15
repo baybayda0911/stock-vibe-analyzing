@@ -13,6 +13,7 @@ APP_FILES = {'app/__init__.py', 'app/store.py', 'app/server.py', 'app/report_vie
              'app/dashboard.py', 'app/fundamentals.py', 'app/analyst_sources.py', 'app/broker_cache.py',
              'app/continuity.py', 'app/continuity_actions.py', 'app/broker_archive.py',
              'app/research_tasks.py', 'app/research_provider.py', 'app/research_materials.py', 'app/comparison.py',
+             'app/local_financial.py', 'app/local_market.py', 'app/local_updates.py',
              'app/static/index.html', 'app/static/app.css', 'app/static/app.js', 'start-platform.cmd'}
 SKILL_FILES = {
     SKILL: {'SKILL.md', 'LICENSE', 'agents/openai.yaml', 'references/prompt.md',
